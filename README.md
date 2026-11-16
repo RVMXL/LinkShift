@@ -73,7 +73,7 @@ neu update
 neu build --release
 ```
 
-Готовые артефакты появятся в `dist/linkshift/` (бинарники для Windows/Linux/macOS + `resources.neu`). Сборка Windows-релиза возможна на любой ОС.
+Готовые артефакты появятся в `dist/linkshift/` (`linkshift-win_x64.exe` + `resources.neu`). Сборка возможна на любой ОС.
 
 ## Структура репозитория
 
@@ -103,6 +103,7 @@ neu build --release
 
 - Первая версия — **0.1.0**; все релизы до 1.0 публикуются как **pre-release**.
 - Название релиза — просто `LinkShift <версия>`, без приписок.
+- Дистрибуция — **только Windows**: `mklink`, junction и `robocopy` — технологии NTFS/Windows; на macOS и Linux системный слой (PowerShell-скрипты) недоступен, поэтому сборки для них не публикуются.
 
 ## Безопасность и ограничения
 
