@@ -543,7 +543,8 @@ export async function revertExternalLink(pathArg, { onStep = null, onProgress = 
         emit('remove-link', { path: src });
         const rl = await runScript('remove-link', [src]);
         if (!rl.ok) throw new AppError('ERR_LINK_FAILED', { details: rl.message ?? rl.error ?? '' });
-        warnings.push(t('WARN_TARGET_NOT_EMPTY', { path: dest }));
+        const still = await getLinkInfo(dest);
+        if (still.exists) warnings.push(t('WARN_TARGET_NOT_EMPTY', { path: dest }));
         emit('done', {});
         return { ok: true, warnings, unlinkedOnly: true };
     }
