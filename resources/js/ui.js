@@ -22,8 +22,11 @@ window.LM = {
     isAdmin: symlinkManager.isAdmin,
     scanStorage: storageScanner.scanStorage,
     cancelScan: storageScanner.cancelScan,
+    scanExternalLinks: storageScanner.scanExternalLinks,
+    cancelExternalScan: storageScanner.cancelExternalScan,
     moveAndLink: symlinkManager.moveAndLink,
     revertLink: symlinkManager.revertLink,
+    revertExternalLink: symlinkManager.revertExternalLink,
 };
 
 /* ------------------------------------------------------------ утилиты */
@@ -57,6 +60,11 @@ const state = {
         running: false,
         items: [],
         selected: new Set(),
+    },
+    links: {
+        running: false,
+        items: [],
+        historyPaths: new Set(),
     },
 };
 
@@ -129,6 +137,7 @@ async function setLang(lang) {
     renderStatus();
     renderAdminHint();
     renderScannerItems();
+    renderLinks();
     renderHistory();
 }
 
@@ -143,6 +152,7 @@ function showPage(page) {
     void el.offsetWidth; // перезапуск CSS-анимации
     el.classList.add('enter');
     if (page === 'history') renderHistory();
+    if (page === 'links') renderLinks();
 }
 
 /* ------------------------------------------------------------ статусбар */
@@ -424,6 +434,141 @@ async function runBulkMove() {
     toast(i18n.t('ui.scanner.bulkDone', { done, failed, total }), failed ? 'warn' : 'ok');
 }
 
+/* -------------------------------------------- вкладка «Ссылки на диске» */
+
+function linkTypeKey(linkType) {
+    return String(linkType || '').toLowerCase() === 'symboliclink' ? 'symlink' : 'junction';
+}
+
+async function renderLinks() {
+    const list = $('#lk-list');
+    list.innerHTML = '';
+    try {
+        const entries = await history.list();
+        state.links.historyPaths = new Set(entries.map((e) => String(e.originalPath ?? '').toLowerCase()));
+    } catch {
+        state.links.historyPaths = new Set();
+    }
+    $('#lk-empty').classList.toggle('hidden', state.links.items.length > 0);
+
+    for (const it of state.links.items) {
+        const isApp = state.links.historyPaths.has(it.path.toLowerCase());
+        const row = document.createElement('div');
+        row.className = 'scan-row';
+        row.innerHTML = `
+            <div class="scan-main">
+                <div class="scan-name">${esc(it.name)}</div>
+                <div class="scan-path" title="${esc(it.path)}">${esc(it.path)}</div>
+                <div class="scan-reasons" title="${esc(it.linkTarget)}">→ ${esc(it.linkTarget || '?')}</div>
+            </div>
+            <span class="chip chip-cat">${esc(i18n.t(`ui.history.linktype.${linkTypeKey(it.linkType)}`))}</span>
+            <span class="badge ${isApp ? 'badge-dim' : 'badge-ok'}">${esc(i18n.t(isApp ? 'ui.links.markApp' : 'ui.links.markExternal'))}</span>
+            <button class="btn btn-sm btn-accent" data-revert-ext="${esc(it.path)}" data-target="${esc(it.linkTarget)}">${esc(i18n.t('ui.links.revertBtn'))}</button>
+            <button class="btn btn-sm btn-subtle" data-open="${esc(it.path)}">${esc(i18n.t('ui.history.openBtn'))}</button>`;
+        list.appendChild(row);
+    }
+}
+
+async function runLinksScan() {
+    if (state.busy || state.links.running) return;
+    const root = $('#lk-root').value.trim();
+    store.set('linksRoot', root);
+
+    state.links.running = true;
+    setBusy(true);
+    $('#lk-cancel').classList.remove('hidden');
+    $('#lk-empty').classList.add('hidden');
+    $('#lk-list').innerHTML = '';
+
+    const t0 = performance.now();
+    try {
+        const items = await storageScanner.scanExternalLinks({
+            root,
+            onProgress: (p) => {
+                $('#lk-current').textContent = i18n.t('ui.links.scanning', { path: p.path });
+            },
+        });
+        state.links.items = items;
+        await renderLinks();
+        $('#lk-current').textContent = i18n.t('ui.links.done', {
+            count: items.length,
+            seconds: Math.round((performance.now() - t0) / 100) / 10,
+        });
+        if (!items.length) $('#lk-empty').classList.remove('hidden');
+    } catch (e) {
+        if (i18n.isAppError(e) && e.code === 'ERR_CANCELLED') {
+            $('#lk-current').textContent = '';
+            toast(e.message, 'info');
+        } else {
+            showError(e);
+        }
+    } finally {
+        state.links.running = false;
+        setBusy(false);
+        $('#lk-cancel').classList.add('hidden');
+    }
+}
+
+/**
+ * Откат ссылки из вкладки «Ссылки на диске»: записи истории откатываются
+ * через revertLink (с удалением записи), остальные — revertExternalLink.
+ */
+async function doLinksRevert(path, linkTarget) {
+    if (state.busy) return;
+    const inApp = state.links.historyPaths.has(String(path).toLowerCase());
+
+    const confirmed = await confirmBox(
+        'ui.links.confirmRevertTitle',
+        i18n.t('ui.links.confirmRevertText', { path, target: linkTarget || '?' }),
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    resetProgress();
+    try {
+        let res;
+        if (inApp) {
+            res = await symlinkManager.revertLink(path, {
+                onStep: (step, info) => stepActive(step, info),
+                onProgress: copyProgress,
+            });
+        } else {
+            try {
+                res = await symlinkManager.revertExternalLink(path, {
+                    onStep: (step, info) => stepActive(step, info),
+                    onProgress: copyProgress,
+                });
+            } catch (e) {
+                if (i18n.isAppError(e) && e.code === 'ERR_LINK_TARGET_MISSING') {
+                    $('#tr-progress').classList.add('hidden');
+                    const unlinkOk = await confirmBox(
+                        'ui.links.confirmUnlinkTitle',
+                        i18n.t('ui.links.confirmUnlinkText', { path }),
+                    );
+                    if (!unlinkOk) return;
+                    resetProgress();
+                    res = await symlinkManager.revertExternalLink(path, {
+                        unlinkOnly: true,
+                        onStep: (step, info) => stepActive(step, info),
+                    });
+                } else {
+                    throw e;
+                }
+            }
+        }
+        stepDone('done');
+        toast(i18n.t('ui.links.revertSuccess', { path }), 'ok');
+        for (const w of (res.warnings ?? [])) toast(w, 'warn');
+    } catch (e) {
+        stepFail();
+        showError(e);
+    } finally {
+        setBusy(false);
+        renderLinks();
+        renderHistory();
+    }
+}
+
 /* ------------------------------------------------------------ вкладка «История» */
 
 function dateLabel(iso) {
@@ -547,6 +692,17 @@ function bind() {
         $$('#sc-list input[data-scan]').forEach((cb) => { cb.checked = false; syncSelection(cb); });
     });
     $('#sc-move-selected').addEventListener('click', runBulkMove);
+
+    $('#lk-root').value = store.get('linksRoot', '%USERPROFILE%');
+    $('#lk-root').addEventListener('input', () => store.set('linksRoot', $('#lk-root').value.trim()));
+    $('#lk-scan').addEventListener('click', runLinksScan);
+    $('#lk-cancel').addEventListener('click', () => storageScanner.cancelExternalScan());
+    $('#lk-list').addEventListener('click', (e) => {
+        const revertBtn = e.target.closest('button[data-revert-ext]');
+        const openBtn = e.target.closest('button[data-open]');
+        if (revertBtn) doLinksRevert(revertBtn.dataset.revertExt, revertBtn.dataset.target);
+        else if (openBtn) openInExplorer(openBtn.dataset.open);
+    });
 
     // делегирование внутри списка сканера: чекбоксы и кнопка «на вкладку переноса»
     $('#sc-list').addEventListener('change', (e) => {

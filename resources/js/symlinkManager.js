@@ -502,6 +502,112 @@ export async function revertLink(idOrPath, { onStep = null, onProgress = null } 
     });
 }
 
+/* ------------------------------------------- откат внешней (ручной) ссылки */
+
+/**
+ * Откат ссылки, созданной вне LinkShift (mklink вручную): удалить ссылку
+ * и вернуть файлы с целевой папки на исходное место. В историю не пишется —
+ * запись «Вернуть как было» имеет смысл только для ссылок приложения.
+ *
+ * @param {string} pathArg  Путь ссылки (reparse point, можно с %ENV%).
+ * @param {object} [opts]
+ * @param {boolean} [opts.unlinkOnly=false]  Удалить только ссылку (когда цель
+ *                             недоступна; подтверждается отдельно в UI).
+ * @param {(step:string, info:object) => void} [opts.onStep]
+ * @param {(progress:object) => void} [opts.onProgress]
+ * @returns {Promise<{ok:true, warnings:string[], unlinkedOnly:boolean}>}
+ */
+export async function revertExternalLink(pathArg, { onStep = null, onProgress = null, unlinkOnly = false } = {}) {
+    const emit = (step, info = {}) => {
+        if (onStep) { try { onStep(step, info); } catch { } }
+    };
+    const warnings = [];
+
+    const src = normalizePath(pathArg);
+    if (!src) throw new AppError('ERR_NOT_A_LINK', { path: '' });
+
+    emit('validate', { path: src });
+    const v = await runScript('validate-source', [src]);
+    if (!v.exists || !v.isDirectory || !v.isReparsePoint) {
+        throw new AppError('ERR_NOT_A_LINK', { path: src });
+    }
+    if (v.isSystemPath) throw new AppError('ERR_SYSTEM_PATH_FORBIDDEN', { path: v.path });
+
+    const dest = normalizePath(v.linkTarget ?? '');
+    if (!dest || dest.toLowerCase() === src.toLowerCase()) {
+        throw new AppError('ERR_LINK_TARGET_MISSING', { path: src });
+    }
+
+    /* Только удалить ссылку: цель недоступна или пользователь так решил. */
+    if (unlinkOnly) {
+        emit('remove-link', { path: src });
+        const rl = await runScript('remove-link', [src]);
+        if (!rl.ok) throw new AppError('ERR_LINK_FAILED', { details: rl.message ?? rl.error ?? '' });
+        warnings.push(t('WARN_TARGET_NOT_EMPTY', { path: dest }));
+        emit('done', {});
+        return { ok: true, warnings, unlinkedOnly: true };
+    }
+
+    const dstInfo = await getLinkInfo(dest);
+    const targetReady = dstInfo.exists && dstInfo.isDirectory && !dstInfo.isReparsePoint;
+    if (!targetReady) throw new AppError('ERR_LINK_TARGET_MISSING', { path: dest });
+
+    /* Цель внутри ссылки не пройдет: robocopy /MOVE ходил бы по кругу. */
+    if ((dest.toLowerCase() + '\\').startsWith(src.toLowerCase() + '\\')) {
+        throw new AppError('ERR_REVERT_STATE_UNEXPECTED', {
+            details: `link target is inside the link: ${dest}`,
+        });
+    }
+
+    /* --- место на исходном диске --- */
+    const size = await measureDirectorySize(dest);
+    if (!size.ok || !size.exists) throw new AppError('ERR_LINK_TARGET_MISSING', { path: dest });
+    const space = await getDriveSpace(src);
+    if (!space.ok) throw new AppError('ERR_INTERNAL', { details: `no drive info for ${src}` });
+    const need = Number(size.bytes ?? 0) + FREE_SPACE_MARGIN;
+    if (space.freeBytes < need) {
+        throw new AppError('ERR_NO_FREE_SPACE', {
+            need: formatBytes(need),
+            free: formatBytes(space.freeBytes),
+            drive: space.drive,
+        });
+    }
+
+    /* --- удалить ссылку и вернуть данные --- */
+    emit('remove-link', { path: src });
+    const rl = await runScript('remove-link', [src]);
+    if (!rl.ok) throw new AppError('ERR_LINK_FAILED', { details: rl.message ?? rl.error ?? '' });
+
+    emit('move-back', { from: dest, to: src });
+    await Neutralino.filesystem.createDirectory(src);
+
+    const admin = await isAdmin();
+    const copyRes = await runCopyWithProgress(
+        dest, src,
+        Number(size.bytes ?? 0), Number(size.files ?? 0),
+        onProgress,
+        robocopyFlags(admin) + ' /MOVE',
+    );
+    if (robocopyFailed(copyRes.exitCode)) {
+        throw new AppError('ERR_REVERT_MOVE_FAILED', {
+            exitCode: copyRes.exitCode == null ? 'timeout' : String(copyRes.exitCode),
+        });
+    }
+
+    emit('cleanup-target', { path: dest });
+    const after = await measureDirectorySize(dest);
+    if (after.ok && after.exists && !after.isReparsePoint
+        && Number(after.files ?? 0) === 0 && Number(after.dirs ?? 0) === 0) {
+        const del = await runScript('delete-dir', [dest]);
+        if (!del.ok) warnings.push(t('WARN_TARGET_NOT_EMPTY', { path: dest }));
+    } else if (after.ok && after.exists) {
+        warnings.push(t('WARN_TARGET_NOT_EMPTY', { path: dest }));
+    }
+
+    emit('done', {});
+    return { ok: true, warnings, unlinkedOnly: false };
+}
+
 /* --------------------------------------------------------- re-exports */
 
 export { isAdmin as checkAdminRights };

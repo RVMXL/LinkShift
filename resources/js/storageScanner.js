@@ -83,3 +83,63 @@ export function cancelScan() {
         activeScanJob.cancel();
     }
 }
+
+/* --------------------------------------------------- все ссылки на диске */
+
+/** Активная задача скана ссылок (для отмены). */
+let activeLinksJob = null;
+
+/**
+ * Скан всех junction/symlink под указанным корнем — включая ссылки,
+ * созданные вручную через mklink вне LinkShift (resources/ps/scan-links.ps1).
+ *
+ * Ссылки не обходятся внутрь, поэтому junction-петли Windows исключены.
+ *
+ * @param {object} [options]
+ * @param {string} [options.root='%USERPROFILE%']  Корень поиска (можно с %ENV%).
+ * @param {number} [options.timeoutMs]             Лимит сканирования (10 минут).
+ * @param {(progress:object) => void} [options.onProgress]  { phase, path }
+ * @returns {Promise<Array<{name,path,linkType,linkTarget}>>} отсортированный по пути список.
+ */
+export async function scanExternalLinks(options = {}) {
+    const {
+        root = '',
+        timeoutMs = 10 * 60 * 1000,
+        onProgress = null,
+    } = options;
+
+    const job = runScript('scan-links', [root], {
+        timeoutMs,
+        onProgress: (p) => {
+            if (onProgress) {
+                try { onProgress(p); } catch { /* UI не должен ронять сканер */ }
+            }
+        },
+    });
+    activeLinksJob = job;
+
+    try {
+        const res = await job;
+        if (!res || res.ok !== true) {
+            throw new AppError('ERR_SCAN_FAILED', {
+                details: (res && (res.message || res.error || res.details)) || 'no result',
+            });
+        }
+        const items = Array.isArray(res.items) ? res.items : [];
+        return items.map((it) => ({
+            name: String(it.name ?? ''),
+            path: String(it.path ?? ''),
+            linkType: String(it.linkType ?? ''),
+            linkTarget: String(it.linkTarget ?? ''),
+        }));
+    } finally {
+        activeLinksJob = null;
+    }
+}
+
+/** Досрочная остановка скана ссылок (из UI или по таймауту). */
+export function cancelExternalScan() {
+    if (activeLinksJob && typeof activeLinksJob.cancel === 'function') {
+        activeLinksJob.cancel();
+    }
+}

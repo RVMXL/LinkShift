@@ -33,6 +33,13 @@
         </svg>
         <span data-i18n="ui.nav.scanner">Сканер диска C</span>
       </button>
+      <button class="nav-item" data-page="links">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M9.5 13.5a4 4 0 0 0 5.7 0l3.3-3.3a4 4 0 0 0-5.7-5.7l-1.4 1.4"/>
+          <path d="M14.5 10.5a4 4 0 0 0-5.7 0l-3.3 3.3a4 4 0 0 0 5.7 5.7l1.4-1.4"/>
+        </svg>
+        <span data-i18n="ui.nav.links">Ссылки на диске</span>
+      </button>
       <button class="nav-item" data-page="history">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
@@ -147,6 +154,35 @@
             <button id="sc-move-selected" class="btn btn-accent btn-sm" data-i18n="ui.scanner.moveSelected"></button>
           </div>
           <div id="sc-list" class="rows"></div>
+        </div>
+      </section>
+
+      <!-- ==================== ССЫЛКИ НА ДИСКЕ ==================== -->
+      <section id="page-links" class="page">
+        <header class="page-head">
+          <h1 data-i18n="ui.page.links.title">Ссылки на диске</h1>
+          <p class="sub" data-i18n="ui.page.links.subtitle"></p>
+        </header>
+
+        <div class="card scan-controls">
+          <div class="field field-inline grow">
+            <label for="lk-root" data-i18n="ui.links.root"></label>
+            <input id="lk-root" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="ui.links.root.ph">
+          </div>
+          <div class="scan-buttons">
+            <button id="lk-scan" class="btn btn-accent" data-i18n="ui.links.scanBtn"></button>
+            <button id="lk-cancel" class="btn btn-subtle hidden" data-i18n="ui.scanner.cancelBtn"></button>
+          </div>
+        </div>
+
+        <div class="hint" data-i18n="ui.links.hint"></div>
+
+        <div id="lk-current" class="dim sc-current"></div>
+
+        <div id="lk-empty" class="empty hidden" data-i18n="ui.links.empty"></div>
+
+        <div class="card list-card">
+          <div id="lk-list" class="rows"></div>
         </div>
       </section>
 

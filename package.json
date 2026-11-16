@@ -1,6 +1,6 @@
 {
   "name": "linkshift",
-  "version": "0.2.0",
+  "version": "0.1.0",
   "description": "LinkShift — GUI для безопасного переноса тяжелых папок и кэшей на другой диск через mklink (Neutralinojs)",
   "author": "RVMXL",
   "license": "Apache-2.0",
