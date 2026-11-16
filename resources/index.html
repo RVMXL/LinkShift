@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <title>LinkShift</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="os-warning" class="os-warning hidden" data-i18n="ui.status.notWindows"></div>
+
+  <div class="app">
+    <!-- Навигация в стиле Windows 11 NavigationView -->
+    <nav class="navrail">
+      <div class="logo">
+        <span class="logo-mark">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M9.5 13.5a4 4 0 0 0 5.7 0l3.3-3.3a4 4 0 0 0-5.7-5.7l-1.4 1.4"/>
+            <path d="M14.5 10.5a4 4 0 0 0-5.7 0l-3.3 3.3a4 4 0 0 0 5.7 5.7l1.4-1.4"/>
+          </svg>
+        </span>
+        <span class="logo-name" data-i18n="app.name">LinkShift</span>
+      </div>
+
+      <button class="nav-item active" data-page="transfer">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 8h11M12 4.5 15.5 8 12 11.5"/><path d="M20 16H9M12 12.5 8.5 16l3.5 3.5"/>
+        </svg>
+        <span data-i18n="ui.nav.transfer">Перенос</span>
+      </button>
+      <button class="nav-item" data-page="scanner">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="10.5" cy="10.5" r="6"/><path d="m15.5 15.5 4.5 4.5"/>
+        </svg>
+        <span data-i18n="ui.nav.scanner">Сканер диска C</span>
+      </button>
+      <button class="nav-item" data-page="history">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>
+        </svg>
+        <span data-i18n="ui.nav.history">История</span>
+      </button>
+
+      <div class="nav-spacer"></div>
+
+      <button id="theme-toggle" class="nav-icon-btn" data-i18n-title="ui.theme.toggle">
+        <svg class="icon-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <path d="M20 13.5A8.5 8.5 0 0 1 10.5 4 8.5 8.5 0 1 0 20 13.5Z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+        </svg>
+      </button>
+      <div class="lang-toggle">
+        <button id="lang-ru" class="lang-btn">RU</button>
+        <button id="lang-en" class="lang-btn">EN</button>
+      </div>
+    </nav>
+
+    <main class="content">
+      <!-- ==================== ПЕРЕНОС ==================== -->
+      <section id="page-transfer" class="page visible">
+        <header class="page-head">
+          <h1 data-i18n="ui.page.transfer.title">Перенос папки</h1>
+          <p class="sub" data-i18n="ui.page.transfer.subtitle"></p>
+        </header>
+
+        <div class="card">
+          <div class="field">
+            <label data-i18n="ui.transfer.source"></label>
+            <div class="field-row">
+              <input id="tr-source" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="ui.transfer.source.ph">
+              <button id="tr-browse-src" class="btn btn-subtle" data-i18n="ui.common.browse"></button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label data-i18n="ui.transfer.target"></label>
+            <div class="field-row">
+              <input id="tr-target" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="ui.transfer.target.ph">
+              <button id="tr-browse-dst" class="btn btn-subtle" data-i18n="ui.common.browse"></button>
+            </div>
+            <div class="hint" data-i18n="ui.transfer.target.hint"></div>
+          </div>
+
+          <div class="field">
+            <label data-i18n="ui.transfer.linktype"></label>
+            <div class="radio-cards">
+              <label class="radio-card">
+                <input type="radio" name="linktype" value="junction" checked>
+                <span class="radio-dot"></span>
+                <span class="radio-body"><b data-i18n="ui.transfer.junction"></b><small data-i18n="ui.transfer.junction.hint"></small></span>
+              </label>
+              <label class="radio-card">
+                <input type="radio" name="linktype" value="symlink">
+                <span class="radio-dot"></span>
+                <span class="radio-body"><b data-i18n="ui.transfer.symlink"></b><small data-i18n="ui.transfer.symlink.hint"></small></span>
+              </label>
+            </div>
+            <div id="tr-admin-hint" class="hint warn-hint hidden" data-i18n="ui.transfer.noAdminHint"></div>
+          </div>
+
+          <div class="actions">
+            <button id="tr-move" class="btn btn-accent btn-lg" data-i18n="ui.transfer.moveBtn"></button>
+          </div>
+        </div>
+
+        <div id="tr-progress" class="card progress-card hidden">
+          <div id="tr-steps" class="steps"></div>
+          <div class="bar"><div id="tr-bar-fill" class="bar-fill"></div></div>
+          <div id="tr-progress-label" class="dim"></div>
+        </div>
+
+        <div class="hint drop-hint" data-i18n="ui.transfer.dropHint"></div>
+      </section>
+
+      <!-- ==================== СКАНЕР ==================== -->
+      <section id="page-scanner" class="page">
+        <header class="page-head">
+          <h1 data-i18n="ui.page.scanner.title">Сканер диска C</h1>
+          <p class="sub" data-i18n="ui.page.scanner.subtitle"></p>
+        </header>
+
+        <div class="card scan-controls">
+          <div class="field field-inline">
+            <label for="sc-threshold" data-i18n="ui.scanner.threshold"></label>
+            <input id="sc-threshold" type="number" min="10" step="50" value="500">
+          </div>
+          <div class="field field-inline grow">
+            <label for="sc-target" data-i18n="ui.scanner.target"></label>
+            <input id="sc-target" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="ui.transfer.target.ph">
+          </div>
+          <div class="scan-buttons">
+            <button id="sc-scan" class="btn btn-accent" data-i18n="ui.scanner.scanBtn"></button>
+            <button id="sc-cancel" class="btn btn-subtle hidden" data-i18n="ui.scanner.cancelBtn"></button>
+          </div>
+        </div>
+
+        <div id="sc-current" class="dim sc-current"></div>
+
+        <div id="sc-empty" class="empty hidden" data-i18n="ui.scanner.empty"></div>
+
+        <div class="card list-card">
+          <div class="list-head">
+            <button id="sc-select-all" class="btn btn-sm btn-subtle" data-i18n="ui.scanner.selectAll"></button>
+            <button id="sc-clear-sel" class="btn btn-sm btn-subtle" data-i18n="ui.scanner.clearSel"></button>
+            <div class="grow"></div>
+            <button id="sc-move-selected" class="btn btn-accent btn-sm" data-i18n="ui.scanner.moveSelected"></button>
+          </div>
+          <div id="sc-list" class="rows"></div>
+        </div>
+      </section>
+
+      <!-- ==================== ИСТОРИЯ ==================== -->
+      <section id="page-history" class="page">
+        <header class="page-head row">
+          <div>
+            <h1 data-i18n="ui.page.history.title">История ссылок</h1>
+            <p class="sub" data-i18n="ui.page.history.subtitle"></p>
+          </div>
+          <button id="hi-refresh" class="btn btn-subtle" data-i18n="ui.history.refresh"></button>
+        </header>
+
+        <div id="hi-empty" class="empty hidden" data-i18n="ui.history.empty"></div>
+
+        <div class="card list-card">
+          <div id="hi-list" class="rows"></div>
+        </div>
+      </section>
+
+      <footer class="statusbar">
+        <span id="admin-chip" class="chip"></span>
+        <button id="admin-restart" class="btn btn-sm btn-subtle hidden" data-i18n="ui.status.restartAdmin"></button>
+        <span class="grow"></span>
+        <span id="ver-label" class="dim"></span>
+      </footer>
+    </main>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script src="js/neutralino.js"></script>
+  <script type="module" src="js/ui.js"></script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+{
+  "applicationId": "com.rvmxl.linkshift",
+  "applicationName": "LinkShift",
+  "applicationIcon": "resources/icons/appIcon.png",
+  "author": "RVMXL",
+  "description": "GUI для безопасного переноса тяжелых папок и кэшей на другой диск через mklink (robocopy + junction/symlink)",
+  "copyright": "© 2026 RVMXL",
+  "version": "0.2.0",
+  "defaultMode": "window",
+  "port": 0,
+  "documentRoot": "/resources/",
+  "url": "/",
+  "enableServer": true,
+  "enableNativeAPI": true,
+  "enableExtensions": false,
+  "tokenSecurity": "one-time",
+  "exportAuthInfo": false,
+  "logging": {
+    "enabled": true,
+    "writeToLogFile": true
+  },
+  "nativeAllowList": [
+    "app.*",
+    "os.*",
+    "filesystem.*",
+    "window.*",
+    "debug.*"
+  ],
+  "globalVariables": {
+    "PRODUCT_NAME": "LinkShift",
+    "APP_VERSION": "0.2.0"
+  },
+  "modes": {
+    "window": {
+      "title": "LinkShift",
+      "width": 1040,
+      "height": 720,
+      "minWidth": 900,
+      "minHeight": 640,
+      "center": true,
+      "resizable": true,
+      "maximize": false,
+      "hidden": false,
+      "fullScreen": false,
+      "alwaysOnTop": false,
+      "borderless": false,
+      "icon": "/resources/icons/appIcon.png",
+      "enableInspector": true,
+      "exitProcessOnClose": true,
+      "useSavedState": true,
+      "emitDropEvents": true
+    }
+  },
+  "cli": {
+    "binaryName": "linkshift",
+    "resourcesPath": "/resources/",
+    "extensionsPath": "/extensions/",
+    "clientLibrary": "/resources/js/neutralino.js",
+    "binaryVersion": "6.10.0",
+    "clientVersion": "6.10.0",
+    "distributionPath": "/dist"
+  }
+}
