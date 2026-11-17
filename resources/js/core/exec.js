@@ -88,12 +88,30 @@ export function spawnStreaming(command, opts = {}) {
             }
         };
 
+        const drain = () => {
+            // Финальная строка без завершающего \n (Write-Json использует
+            // [Console]::Out.Write) оставалась в буфере и терялась при выходе
+            // процесса - скан "завершался без результата" (exit 0, no JSON).
+            // Отдаём хвост как обычную строку перед резолвом.
+            if (outBuf) {
+                const line = outBuf.replace(/\r$/, '');
+                outBuf = '';
+                if (line && onStdOutLine) { try { onStdOutLine(line); } catch { } }
+            }
+            if (errBuf) {
+                const line = errBuf.replace(/\r$/, '');
+                errBuf = '';
+                if (line && onStdErrLine) { try { onStdErrLine(line); } catch { } }
+            }
+        };
+
         const finish = (payload) => {
             if (settled) return;
             settled = true;
             if (timeoutTimer) clearTimeout(timeoutTimer);
             if (forceTimer) clearTimeout(forceTimer);
             detach();
+            drain();
             resolveFn(payload);
         };
 

@@ -25,7 +25,10 @@ function ConvertFrom-B64([string]$b64) {
 
 function Write-Json([object]$obj) {
     # -InputObject keeps single-element arrays intact on PS 5.1.
-    [Console]::Out.Write((ConvertTo-Json -InputObject $obj -Compress -Depth 8))
+    # WriteLine, not Write: the app's line parser splits on \n, so a final
+    # JSON without a trailing newline stayed in the stream buffer and was
+    # lost ("produced no JSON" with exit 0).
+    [Console]::Out.WriteLine((ConvertTo-Json -InputObject $obj -Compress -Depth 8))
 }
 
 function Write-ProgressJson([object]$obj) {
@@ -43,7 +46,7 @@ trap {
     try { $msg = [string]$_.Exception.Message } catch { }
     $payload = @{ ok = $false; error = 'ps-error'; message = $msg }
     try {
-        [Console]::Out.Write((ConvertTo-Json -InputObject $payload -Compress -Depth 3))
+        [Console]::Out.WriteLine((ConvertTo-Json -InputObject $payload -Compress -Depth 3))
     } catch { }
     exit 1
 }
