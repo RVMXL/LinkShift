@@ -6,6 +6,14 @@
 
 . "$PSScriptRoot\_lib.ps1"
 
+# If _lib.ps1 died partway (e.g. a throwing console-encoding setter),
+# fail fast with a machine-readable error instead of a confusing
+# CommandNotFoundException at the final Write-Json call.
+if (-not (Get-Command 'Write-Json' -ErrorAction SilentlyContinue)) {
+    [Console]::Out.Write('{"ok":false,"error":"lib-load-failed","message":"_lib.ps1 failed to load"}')
+    exit 1
+}
+
 $path = ConvertFrom-B64 $args[0]
 $newName = ConvertFrom-B64 $args[1]
 

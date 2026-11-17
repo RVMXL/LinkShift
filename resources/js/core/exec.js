@@ -214,7 +214,11 @@ export function spawnStreaming(command, opts = {}) {
  * @param {object} [opts]  Те же опции, что у spawnStreaming.
  */
 export async function runPSInline(script, opts = {}) {
-    const prefix = '[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); ';
+    // try/catch обязателен: у процесса без консоли (мы — GUI-приложение с
+    // перенаправленными пайпами) сеттер [Console]::OutputEncoding бросает
+    // IOException, и .NET-исключение терминирует весь inline-скрипт - так
+    // ломалась admin-проверка. Тот же guard в _lib.ps1.
+    const prefix = 'try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }; ';
     const encoded = toB64Utf16(prefix + script);
     const command = 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand ' + encoded;
     return spawnStreaming(command, opts);

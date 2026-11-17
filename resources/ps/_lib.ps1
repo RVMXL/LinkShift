@@ -8,7 +8,11 @@
 # with ConvertTo-Json, which escapes non-ASCII as \uXXXX, so the console pipe
 # stays clean for the Neutralino side.
 
-[Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
+# The console encoding setter throws on processes without a real console
+# (we are spawned from a GUI app with redirected pipes), which would kill the
+# whole dot-sourced library. JSON output is ASCII-escaped anyway, so a failed
+# setter costs nothing. Same guard is applied in runPSInline (exec.js).
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 
 # ---------------------------------------------------------------- base64 I/O
 
@@ -26,6 +30,22 @@ function Write-Json([object]$obj) {
 
 function Write-ProgressJson([object]$obj) {
     [Console]::Out.WriteLine(('##P##' + (ConvertTo-Json -InputObject $obj -Compress -Depth 8)))
+}
+
+# Last-resort net for terminating errors (.NET method exceptions, missing
+# cmdlets, etc.): emit the error as JSON over stdout and exit 1, so the app
+# shows a localized message instead of "produced no JSON". Deliberately does
+# NOT depend on Write-Json - the exact failure this guards against is that
+# function being missing. Dot-sourcing places this trap in the caller's
+# scope, covering the whole calling script.
+trap {
+    $msg = ''
+    try { $msg = [string]$_.Exception.Message } catch { }
+    $payload = @{ ok = $false; error = 'ps-error'; message = $msg }
+    try {
+        [Console]::Out.Write((ConvertTo-Json -InputObject $payload -Compress -Depth 3))
+    } catch { }
+    exit 1
 }
 
 # ------------------------------------------------------------------- paths
