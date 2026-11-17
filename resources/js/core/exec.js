@@ -76,10 +76,12 @@ export function spawnStreaming(command, opts = {}) {
         let errBuf = '';
         let timeoutTimer = null;
         let forceTimer = null;
+        let pollTimer = null;
         let killed = false;
         let resolveFn = null;
 
         const detach = () => {
+            if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
             if (handler) {
                 Neutralino.events.off('spawnedProcess', handler).catch(() => {});
                 handler = null;
@@ -99,18 +101,22 @@ export function spawnStreaming(command, opts = {}) {
             if (killed) return;
             killed = true;
             Neutralino.os.updateSpawnedProcess(proc.id, 'exit').catch(() => {});
-            // Страховка: если событие 'exit' не пришло — завершаем сами.
+            // Страховка: если событие 'exit' не пришло — завершаем сами (2 с
+            // достаточно: процесс уже убит, ждём только подтверждение).
             forceTimer = setTimeout(() => finish({
                 exitCode: null, stdOut: stdOutAll, stdErr: stdErrAll,
                 timedOut: true, cancelled: true,
-            }), 5000);
+            }), 2000);
         };
 
         cancelFn = kill;
 
         // Слушатель вешается ДО запуска процесса: события, пришедшие между
-        // spawnProcess и подпиской, не теряются.
-        const handler = (evt) => {
+        // spawnProcess и подпиской, не теряются. let, а не const: detach()
+        // обнуляет ссылку, и присваивание const роняло finish() с TypeError
+        // («Assignment to constant variable»), оставляя промис навсегда
+        // неразрешённым — это и было «вечное» зависание сканов.
+        let handler = (evt) => {
             const d = evt && evt.detail ? evt.detail : {};
             if (proc == null || d.id !== proc.id) return;
             if (d.action === 'stdOut') {
@@ -161,6 +167,29 @@ export function spawnStreaming(command, opts = {}) {
             throw new AppError('ERR_INTERNAL', { details: `spawnProcess failed: ${raw}` });
         }
         proc = spawned;
+
+        // Страховка от «висящего» промиса: сервер удаляет процесс из
+        // getSpawnedProcesses сразу после выхода, поэтому если наш id исчез
+        // из списка — процесс завершился, даже если событие 'exit' потерялось
+        // (наблюдалось на Windows). Промис гарантированно резолвится.
+        pollTimer = setInterval(() => {
+            if (settled || proc == null) return;
+            Neutralino.os.getSpawnedProcesses()
+                .then((list) => {
+                    if (settled || proc == null) return;
+                    const alive = Array.isArray(list) && list.some((p) => p && p.id === proc.id);
+                    if (!alive) {
+                        finish({
+                            exitCode: null,
+                            stdOut: stdOutAll,
+                            stdErr: stdErrAll,
+                            timedOut: false,
+                            cancelled: killed,
+                        });
+                    }
+                })
+                .catch(() => { /* API недоступен — остаёмся на событиях и таймауте */ });
+        }, 2000);
 
         return await new Promise((resolve) => {
             resolveFn = resolve;

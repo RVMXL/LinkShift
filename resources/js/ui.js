@@ -387,6 +387,7 @@ async function runScan() {
             $('#sc-current').textContent = '';
             toast(e.message, 'info');
         } else {
+            $('#sc-current').textContent = '';
             showError(e);
         }
     } finally {
@@ -509,6 +510,7 @@ async function runLinksScan() {
             $('#lk-current').textContent = '';
             toast(e.message, 'info');
         } else {
+            $('#lk-current').textContent = '';
             showError(e);
         }
     } finally {

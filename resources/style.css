@@ -336,7 +336,9 @@ input, button { font-family: inherit; }
 .btn-lg { padding: 11px 26px; font-size: 15px; }
 .btn-sm { padding: 5px 12px; font-size: 12.5px; font-weight: 600; }
 
-body.busy .btn-accent, body.busy #sc-scan, body.busy #sc-cancel, body.busy #tr-move {
+/* #sc-cancel и #lk-cancel НЕ гасим: это кнопки «Остановить» — они должны быть
+   активны именно тогда, когда идёт длинная операция. */
+body.busy .btn-accent:not(#sc-cancel):not(#lk-cancel), body.busy #sc-scan, body.busy #tr-move {
     pointer-events: none;
     opacity: 0.6;
 }

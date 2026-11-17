@@ -53,10 +53,16 @@ export class AppError extends Error {
         this.code = code;
         this.params = params ?? {};
         this.cause = cause;
-    }
-
-    get message() {
-        return t(this.code, this.params);
+        // ВАЖНО: super(code) создаёт собственное свойство message с сырым
+        // кодом ('ERR_INTERNAL'), а собственное свойство затеняет геттер
+        // прототипа — e.message всегда возвращал голый код, и UI показывал
+        // «ERR_INTERNAL: ERR_INTERNAL» вместо локализованного текста.
+        // Переопределяем его собственным геттером с живой локализацией.
+        Object.defineProperty(this, 'message', {
+            get: () => t(this.code, this.params),
+            enumerable: true,
+            configurable: true,
+        });
     }
 
     toJSON() {

@@ -15,6 +15,43 @@ import { AppError } from './i18n.js';
 
 const scriptCache = new Map();
 let tempCounter = 0;
+let tempDirCache = null;
+
+/** Рабочий каталог для временных .ps1. */
+async function getTempDir() {
+    if (tempDirCache) return tempDirCache;
+    // Приоритет — %PUBLIC% (обычно C:\Users\Public): путь гарантированно ASCII.
+    // CreateProcess в Neutralino передаёт командную строку как ANSI без
+    // конверсии, и UTF-8 путь с кириллицей (типичный %TEMP% русскоязычного
+    // профиля) превращается в mojibake: PowerShell получает несуществующий
+    // путь -File и мгновенно умирает. ASCII-каталог снимает проблему целиком.
+    const candidates = [];
+    try { candidates.push(await Neutralino.os.getEnv('PUBLIC')); } catch { }
+    try { candidates.push(await Neutralino.os.getPath('temp')); } catch { }
+    try { candidates.push(await Neutralino.os.getEnv('TEMP')); } catch { }
+    for (const raw of candidates) {
+        const dir = String(raw || '').trim().replace(/[\\/]+$/, '');
+        if (!dir) continue;
+        const sep = dir.includes('\\') ? '\\' : '/';
+        const work = `${dir}${sep}LinkShift_tmp`;
+        try {
+            await Neutralino.filesystem.createDirectory(work);
+            tempDirCache = work;
+            return work;
+        } catch (e) {
+            // Каталог мог существовать: проверяем фактическое наличие.
+            try {
+                const st = await Neutralino.filesystem.getStats(work);
+                if (st && st.isDirectory) {
+                    tempDirCache = work;
+                    return work;
+                }
+            } catch { /* действительно недоступен */ }
+            console.warn('[LinkShift] temp dir candidate failed:', work, e);
+        }
+    }
+    throw new AppError('ERR_INTERNAL', { details: 'no writable temp directory found' });
+}
 
 /** Текст скрипта из documentRoot (кэшируется на сессию). */
 async function getScriptText(name) {
@@ -28,23 +65,6 @@ async function getScriptText(name) {
     return scriptCache.get(name);
 }
 
-/** Каталог для временных .ps1: os.getPath('temp') с фолбэком на %TEMP%. */
-async function getTempDir() {
-    try {
-        const dir = await Neutralino.os.getPath('temp');
-        if (dir) return String(dir).replace(/[\\/]+$/, '');
-    } catch (e) {
-        console.warn('[LinkShift] getPath(temp) failed:', e);
-    }
-    try {
-        const env = await Neutralino.os.getEnv('TEMP');
-        if (env) return String(env).replace(/[\\/]+$/, '');
-    } catch (e) {
-        console.warn('[LinkShift] getEnv(TEMP) failed:', e);
-    }
-    throw new AppError('ERR_INTERNAL', { details: 'TEMP directory not found' });
-}
-
 /**
  * Запускает скрипт из resources/ps/<name>.ps1 с Base64-аргументами.
  *
@@ -55,12 +75,15 @@ async function getTempDir() {
  * @param {(progress: object) => void} [opts.onProgress]  Поток ##P##-событий.
  * @returns {Promise<object>}  Разобранный JSON-результат скрипта.
  */
-export async function runScript(name, args = [], opts = {}) {
+export function runScript(name, args = [], opts = {}) {
     const { timeoutMs = 120000, onProgress = null } = opts;
+    let job = null;
 
-    const scriptText = await getScriptText(name);
+    const promise = (async () => {
+        const scriptText = await getScriptText(name);
     const tempDir = await getTempDir();
-    const tempFile = `${tempDir}\\LinkShift_${name}_${Date.now()}_${tempCounter++}.ps1`;
+    const sep = tempDir.includes('\\') ? '\\' : '/';
+    const tempFile = `${tempDir}${sep}LinkShift_${name}_${Date.now()}_${tempCounter++}.ps1`;
     try {
         await Neutralino.filesystem.writeFile(tempFile, scriptText);
     } catch (e) {
@@ -76,7 +99,7 @@ export async function runScript(name, args = [], opts = {}) {
             + (b64args.length ? ' ' + b64args.join(' ') : '');
 
         const outLines = [];
-        const job = spawnStreaming(command, {
+        job = spawnStreaming(command, {
             timeoutMs,
             onStdOutLine: (line) => {
                 const trimmed = line.trim();
@@ -121,4 +144,14 @@ export async function runScript(name, args = [], opts = {}) {
     } finally {
         try { await Neutralino.filesystem.remove(tempFile); } catch { /* не критично */ }
     }
+    })();
+
+    // Кнопки «Остановить» зовут .cancel() — пробрасываем во внутренний
+    // spawnStreaming. Раньше runScript был async-функцией: у её промиса не
+    // было .cancel, и cancelScan() молча ничего не делал — скан продолжался
+    // до самозавершения PowerShell.
+    promise.cancel = () => {
+        if (job && typeof job.cancel === 'function') job.cancel();
+    };
+    return promise;
 }
