@@ -83,9 +83,18 @@ function toast(message, type = 'info') {
 }
 
 function showError(e) {
-    const payload = i18n.isAppError(e) ? e.toJSON() : { code: 'ERR_INTERNAL', message: String(e?.message ?? e) };
+    const payload = i18n.isAppError(e)
+        ? e.toJSON()
+        : {
+            code: 'ERR_INTERNAL',
+            message: String(e?.message ?? e),
+            raw: e && typeof e === 'object' ? { code: e.code, message: e.message } : String(e),
+        };
     toast(`${payload.code}: ${payload.message}`, 'err');
     console.error('[LinkShift]', payload, e);
+    // Дублируем в лог Neutralino (resources/.tmp/neutralino.log или рядом с exe):
+    // по нему можно разобрать ошибку без открытых DevTools.
+    try { Neutralino.debug.log(JSON.stringify(payload), 'ERROR'); } catch { /* лог не критичен */ }
 }
 
 /** Нативное подтверждение Windows (MessageBox YES_NO). */

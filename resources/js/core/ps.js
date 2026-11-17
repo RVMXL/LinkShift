@@ -33,9 +33,15 @@ async function getTempDir() {
     try {
         const dir = await Neutralino.os.getPath('temp');
         if (dir) return String(dir).replace(/[\\/]+$/, '');
-    } catch { /* ниже ручной фолбэк */ }
-    const env = await Neutralino.os.getEnv('TEMP');
-    if (env) return String(env).replace(/[\\/]+$/, '');
+    } catch (e) {
+        console.warn('[LinkShift] getPath(temp) failed:', e);
+    }
+    try {
+        const env = await Neutralino.os.getEnv('TEMP');
+        if (env) return String(env).replace(/[\\/]+$/, '');
+    } catch (e) {
+        console.warn('[LinkShift] getEnv(TEMP) failed:', e);
+    }
     throw new AppError('ERR_INTERNAL', { details: 'TEMP directory not found' });
 }
 
@@ -55,7 +61,13 @@ export async function runScript(name, args = [], opts = {}) {
     const scriptText = await getScriptText(name);
     const tempDir = await getTempDir();
     const tempFile = `${tempDir}\\LinkShift_${name}_${Date.now()}_${tempCounter++}.ps1`;
-    await Neutralino.filesystem.writeFile(tempFile, scriptText);
+    try {
+        await Neutralino.filesystem.writeFile(tempFile, scriptText);
+    } catch (e) {
+        // Нативный сбой записи: сохраняем raw-ошибку сервера для диагностики.
+        const raw = JSON.stringify(e && typeof e === 'object' ? { code: e.code, message: e.message } : String(e));
+        throw new AppError('ERR_INTERNAL', { details: `writeFile(${tempFile}) failed: ${raw}` });
+    }
 
     try {
         const b64args = args.map((a) => toB64(String(a)));
@@ -79,7 +91,16 @@ export async function runScript(name, args = [], opts = {}) {
             },
         });
 
-        const res = await job;
+        let res;
+        try {
+            res = await job;
+        } catch (e) {
+            // AppError (отмена/таймаут) — пробрасываем как есть; сырые нативные
+            // ошибки оборачиваем, сохраняя raw-объект сервера в details.
+            if (e instanceof AppError) throw e;
+            const raw = JSON.stringify(e && typeof e === 'object' ? { code: e.code, message: e.message } : String(e));
+            throw new AppError('ERR_INTERNAL', { details: `script job failed: ${raw}` });
+        }
 
         if (res.cancelled) throw new AppError('ERR_CANCELLED');
         if (res.timedOut) {

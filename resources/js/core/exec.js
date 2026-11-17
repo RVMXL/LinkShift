@@ -10,6 +10,8 @@
  *    что даёт таймауты, отмену и потоковый прогресс.
  */
 
+import { AppError } from './i18n.js';
+
 /* ------------------------------------------------------------ кодировки */
 
 /** UTF-8 → Base64 (для аргументов PowerShell-скриптов и путей). */
@@ -66,80 +68,102 @@ export function spawnStreaming(command, opts = {}) {
     let cancelFn = null;
 
     const promise = (async () => {
-        const proc = await Neutralino.os.spawnProcess(command);
+        let proc = null;
+        let settled = false;
+        let stdOutAll = '';
+        let stdErrAll = '';
+        let outBuf = '';
+        let errBuf = '';
+        let timeoutTimer = null;
+        let forceTimer = null;
+        let killed = false;
+        let resolveFn = null;
+
+        const detach = () => {
+            if (handler) {
+                Neutralino.events.off('spawnedProcess', handler).catch(() => {});
+                handler = null;
+            }
+        };
+
+        const finish = (payload) => {
+            if (settled) return;
+            settled = true;
+            if (timeoutTimer) clearTimeout(timeoutTimer);
+            if (forceTimer) clearTimeout(forceTimer);
+            detach();
+            resolveFn(payload);
+        };
+
+        const kill = () => {
+            if (killed) return;
+            killed = true;
+            Neutralino.os.updateSpawnedProcess(proc.id, 'exit').catch(() => {});
+            // Страховка: если событие 'exit' не пришло — завершаем сами.
+            forceTimer = setTimeout(() => finish({
+                exitCode: null, stdOut: stdOutAll, stdErr: stdErrAll,
+                timedOut: true, cancelled: true,
+            }), 5000);
+        };
+
+        cancelFn = kill;
+
+        // Слушатель вешается ДО запуска процесса: события, пришедшие между
+        // spawnProcess и подпиской, не теряются.
+        const handler = (evt) => {
+            const d = evt && evt.detail ? evt.detail : {};
+            if (proc == null || d.id !== proc.id) return;
+            if (d.action === 'stdOut') {
+                const chunk = d.data == null ? '' : String(d.data);
+                stdOutAll += chunk;
+                outBuf += chunk;
+                let idx;
+                while ((idx = outBuf.indexOf('\n')) >= 0) {
+                    const line = outBuf.slice(0, idx).replace(/\r$/, '');
+                    outBuf = outBuf.slice(idx + 1);
+                    if (line && onStdOutLine) {
+                        try { onStdOutLine(line); } catch { /* колбэк не должен ронять чтение */ }
+                    }
+                }
+            } else if (d.action === 'stdErr') {
+                const chunk = d.data == null ? '' : String(d.data);
+                stdErrAll += chunk;
+                errBuf += chunk;
+                let idx;
+                while ((idx = errBuf.indexOf('\n')) >= 0) {
+                    const line = errBuf.slice(0, idx).replace(/\r$/, '');
+                    errBuf = errBuf.slice(idx + 1);
+                    if (line && onStdErrLine) {
+                        try { onStdErrLine(line); } catch { }
+                    }
+                }
+            } else if (d.action === 'exit') {
+                finish({
+                    exitCode: Number(d.data),
+                    stdOut: stdOutAll,
+                    stdErr: stdErrAll,
+                    timedOut: false,
+                    cancelled: killed,
+                });
+            }
+        };
+
+        Neutralino.events.on('spawnedProcess', handler);
+
+        let spawned;
+        try {
+            spawned = await Neutralino.os.spawnProcess(command);
+        } catch (e) {
+            detach();
+            // Нативный сбой запуска: сырую ошибку сервера сохраняем в details,
+            // чтобы UI показал, какой вызов и какой код вернул.
+            const raw = JSON.stringify(e && typeof e === 'object' ? { code: e.code, message: e.message } : String(e));
+            throw new AppError('ERR_INTERNAL', { details: `spawnProcess failed: ${raw}` });
+        }
+        proc = spawned;
 
         return await new Promise((resolve) => {
-            let stdOutAll = '';
-            let stdErrAll = '';
-            let outBuf = '';
-            let errBuf = '';
-            let settled = false;
-            let timeoutTimer = null;
-            let forceTimer = null;
-            let killed = false;
-
-            const finish = (payload) => {
-                if (settled) return;
-                settled = true;
-                if (timeoutTimer) clearTimeout(timeoutTimer);
-                if (forceTimer) clearTimeout(forceTimer);
-                Neutralino.events.off('spawnedProcess', handler).catch(() => {});
-                resolve(payload);
-            };
-
-            const kill = () => {
-                if (killed) return;
-                killed = true;
-                Neutralino.os.updateSpawnedProcess(proc.id, 'exit').catch(() => {});
-                // Страховка: если событие 'exit' не пришло — завершаем сами.
-                forceTimer = setTimeout(() => finish({
-                    exitCode: null, stdOut: stdOutAll, stdErr: stdErrAll,
-                    timedOut: true, cancelled: true,
-                }), 5000);
-            };
-
-            cancelFn = kill;
-
-            const handler = (evt) => {
-                const d = evt && evt.detail ? evt.detail : {};
-                if (d.id !== proc.id) return;
-                if (d.action === 'stdOut') {
-                    const chunk = d.data == null ? '' : String(d.data);
-                    stdOutAll += chunk;
-                    outBuf += chunk;
-                    let idx;
-                    while ((idx = outBuf.indexOf('\n')) >= 0) {
-                        const line = outBuf.slice(0, idx).replace(/\r$/, '');
-                        outBuf = outBuf.slice(idx + 1);
-                        if (line && onStdOutLine) {
-                            try { onStdOutLine(line); } catch { /* колбэк не должен ронять чтение */ }
-                        }
-                    }
-                } else if (d.action === 'stdErr') {
-                    const chunk = d.data == null ? '' : String(d.data);
-                    stdErrAll += chunk;
-                    errBuf += chunk;
-                    let idx;
-                    while ((idx = errBuf.indexOf('\n')) >= 0) {
-                        const line = errBuf.slice(0, idx).replace(/\r$/, '');
-                        errBuf = errBuf.slice(idx + 1);
-                        if (line && onStdErrLine) {
-                            try { onStdErrLine(line); } catch { }
-                        }
-                    }
-                } else if (d.action === 'exit') {
-                    finish({
-                        exitCode: Number(d.data),
-                        stdOut: stdOutAll,
-                        stdErr: stdErrAll,
-                        timedOut: false,
-                        cancelled: killed,
-                    });
-                }
-            };
-
-            Neutralino.events.on('spawnedProcess', handler);
-
+            resolveFn = resolve;
             if (timeoutMs && timeoutMs > 0) {
                 timeoutTimer = setTimeout(kill, timeoutMs);
             }
