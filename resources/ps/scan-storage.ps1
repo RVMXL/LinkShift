@@ -14,7 +14,15 @@
 # Out:  progress lines "##P##{json}" while measuring, then one final JSON:
 #       { ok, items: [ { name, path, sizeMB, files, category, isSafeToMove, reasons } ] }
 
-. "$PSScriptRoot\_lib.ps1"
+# The temp copy lives alone in its folder: the app must write _lib.ps1
+# next to this script. Fail with a machine-readable error instead of a
+# bare CommandNotFoundException when it is missing.
+$libPath = Join-Path $PSScriptRoot '_lib.ps1'
+if (-not (Test-Path -LiteralPath $libPath)) {
+    [Console]::Out.Write('{"ok":false,"error":"lib-missing","message":"_lib.ps1 was not written next to the script"}')
+    exit 1
+}
+. $libPath
 
 # If _lib.ps1 died partway (e.g. a throwing console-encoding setter),
 # fail fast with a machine-readable error instead of a confusing

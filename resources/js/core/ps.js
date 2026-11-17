@@ -92,6 +92,17 @@ export function runScript(name, args = [], opts = {}) {
         throw new AppError('ERR_INTERNAL', { details: `writeFile(${tempFile}) failed: ${raw}` });
     }
 
+    // _lib.ps1 обязателен РЯДОМ со скриптом: каждый скрипт делает
+    // . "$PSScriptRoot\_lib.ps1", а в temp-каталог писался только сам скрипт —
+    // dot-source не находил файл, и скан умирал с CommandNotFoundException
+    // (релизы 0.1.0-0.1.2). Пишем библиотеку рядом перед каждым запуском.
+    try {
+        await Neutralino.filesystem.writeFile(`${tempDir}${sep}_lib.ps1`, await getScriptText('_lib'));
+    } catch (e) {
+        const raw = JSON.stringify(e && typeof e === 'object' ? { code: e.code, message: e.message } : String(e));
+        throw new AppError('ERR_INTERNAL', { details: `writeFile(_lib.ps1) failed: ${raw}` });
+    }
+
     try {
         const b64args = args.map((a) => toB64(String(a)));
         const command = 'powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File '
