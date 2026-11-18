@@ -7,8 +7,10 @@
 #
 # Noise filters:
 #   * the C:\Windows tree is never entered;
-#   * links that are Hidden AND System (Windows compatibility junctions)
-#     are skipped in the resolve step.
+#   * every link carries an isSystem flag: Hidden or System attribute
+#     (Windows compatibility junctions) or a classic XP-compat name
+#     ("Application Data", "My Documents", ...). The UI hides flagged
+#     links by default behind a "show system links" toggle.
 #
 # Args: $args[0] = B64(root path, may contain %ENV%; empty = %USERPROFILE%)
 # Out:  progress lines "##P##{json}", then one final JSON:
@@ -103,12 +105,26 @@ $walked = [int]$meta[0]
 $errors = [int]$meta[1]
 
 $results = New-Object System.Collections.ArrayList
+
+# Classic XP-compatibility junction names Windows creates in profiles and at
+# drive roots; a link with one of these names is "system" even without the
+# Hidden/System attributes (some of them carry only one of the two).
+$compatNames = New-Object 'System.Collections.Generic.HashSet[string]'
+foreach ($n in @('application data', 'documents and settings', 'my documents', 'my music',
+        'my pictures', 'my videos', 'local settings', 'history', 'cookies', 'nethood',
+        'printhood', 'recent', 'sendto', 'templates', 'start menu', 'all users', 'default user')) {
+    [void]$compatNames.Add($n)
+}
+
 foreach ($p in ($meta | Select-Object -Skip 3)) {
     if ($winDir -and $p.StartsWith($winDir.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) { continue }
     try {
         $item = Get-Item -LiteralPath $p -Force -ErrorAction Stop
         $a = $item.Attributes
-        if (($a -band [System.IO.FileAttributes]::Hidden) -and ($a -band [System.IO.FileAttributes]::System)) { continue }
+        $isSystem = [bool]($a -band [System.IO.FileAttributes]::Hidden) -or
+            [bool]($a -band [System.IO.FileAttributes]::System)
+        if (-not $isSystem -and
+            $compatNames.Contains([System.IO.Path]::GetFileName($p).ToLowerInvariant())) { $isSystem = $true }
         $target = ''
         $t = ($item.Target | Select-Object -First 1)
         if ($t) { $target = [string]$t }
@@ -117,6 +133,7 @@ foreach ($p in ($meta | Select-Object -Skip 3)) {
             path       = $p
             linkType   = [string]$item.LinkType
             linkTarget = $target
+            isSystem   = $isSystem
         })
         Write-ProgressJson @{ phase = 'resolve'; path = $p }
     } catch { $errors++ }

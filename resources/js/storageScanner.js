@@ -131,6 +131,7 @@ export async function scanExternalLinks(options = {}) {
             path: String(it.path ?? ''),
             linkType: String(it.linkType ?? ''),
             linkTarget: String(it.linkTarget ?? ''),
+            isSystem: Boolean(it.isSystem),
         }));
     } finally {
         activeLinksJob = null;

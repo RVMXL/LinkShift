@@ -461,10 +461,24 @@ async function renderLinks() {
     }
     $('#lk-empty').classList.toggle('hidden', state.links.items.length > 0);
 
-    for (const it of state.links.items) {
+    // Системные ссылки (Hidden/System-атрибуты или compat-имена Windows)
+    // скрыты по умолчанию; тумблер «Показывать системные» открывает их
+    // с бейджем и без кнопки «Вернуть» — откат системного джанкшена опасен.
+    const showSystem = store.get('showSystemLinks', '0') === '1';
+    const visible = showSystem
+        ? state.links.items
+        : state.links.items.filter((it) => !it.isSystem);
+
+    for (const it of visible) {
         const isApp = state.links.historyPaths.has(it.path.toLowerCase());
         const row = document.createElement('div');
         row.className = 'scan-row';
+        const sysBadge = it.isSystem
+            ? `<span class="badge badge-warn">${esc(i18n.t('ui.links.markSystem'))}</span>`
+            : '';
+        const revertBtn = it.isSystem
+            ? ''
+            : `<button class="btn btn-sm btn-accent" data-revert-ext="${esc(it.path)}" data-target="${esc(it.linkTarget)}">${esc(i18n.t('ui.links.revertBtn'))}</button>`;
         row.innerHTML = `
             <div class="scan-main">
                 <div class="scan-name">${esc(it.name)}</div>
@@ -472,8 +486,9 @@ async function renderLinks() {
                 <div class="scan-reasons" title="${esc(it.linkTarget)}">→ ${esc(it.linkTarget || '?')}</div>
             </div>
             <span class="chip chip-cat">${esc(i18n.t(`ui.history.linktype.${linkTypeKey(it.linkType)}`))}</span>
+            ${sysBadge}
             <span class="badge ${isApp ? 'badge-dim' : 'badge-ok'}">${esc(i18n.t(isApp ? 'ui.links.markApp' : 'ui.links.markExternal'))}</span>
-            <button class="btn btn-sm btn-accent" data-revert-ext="${esc(it.path)}" data-target="${esc(it.linkTarget)}">${esc(i18n.t('ui.links.revertBtn'))}</button>
+            ${revertBtn}
             <button class="btn btn-sm btn-subtle" data-open="${esc(it.path)}">${esc(i18n.t('ui.history.openBtn'))}</button>`;
         list.appendChild(row);
     }
@@ -500,10 +515,14 @@ async function runLinksScan() {
         });
         state.links.items = items;
         await renderLinks();
+        const hiddenSystem = store.get('showSystemLinks', '0') === '1'
+            ? 0
+            : items.filter((it) => it.isSystem).length;
         $('#lk-current').textContent = i18n.t('ui.links.done', {
             count: items.length,
             seconds: Math.round((performance.now() - t0) / 100) / 10,
-        });
+        })
+            + (hiddenSystem ? ' · ' + i18n.t('ui.links.systemHidden', { count: hiddenSystem }) : '');
         if (!items.length) $('#lk-empty').classList.remove('hidden');
     } catch (e) {
         if (i18n.isAppError(e) && e.code === 'ERR_CANCELLED') {
@@ -706,6 +725,11 @@ function bind() {
 
     $('#lk-root').value = store.get('linksRoot', '%USERPROFILE%');
     $('#lk-root').addEventListener('input', () => store.set('linksRoot', $('#lk-root').value.trim()));
+    $('#lk-show-system').checked = store.get('showSystemLinks', '0') === '1';
+    $('#lk-show-system').addEventListener('change', () => {
+        store.set('showSystemLinks', $('#lk-show-system').checked ? '1' : '0');
+        renderLinks();
+    });
     $('#lk-scan').addEventListener('click', runLinksScan);
     $('#lk-cancel').addEventListener('click', () => storageScanner.cancelExternalScan());
     $('#lk-list').addEventListener('click', (e) => {
