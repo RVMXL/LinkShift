@@ -197,6 +197,19 @@ function robocopyFailed(exitCode) {
     return exitCode == null || exitCode >= 8;
 }
 
+/**
+ * Последняя осмысленная строка вывода robocopy — причина ошибки для тоста
+ * (robocopy пишет её даже с /NP /NFL /NDL: итоговая таблица и строки ERROR).
+ */
+function robocopyErrorHint(output) {
+    if (!output) return '';
+    const lines = String(output).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return '';
+    const errLines = lines.filter((l) => /error|ошибк|отказано|доступ|denied|invalid|неверн/i.test(l));
+    const pick = (errLines.length ? errLines : lines).slice(-1)[0] ?? '';
+    return pick.replace(/["«»]/g, '').slice(0, 160);
+}
+
 /* ------------------------------------------------------------ верификация */
 
 async function verifyLink(src, dest, effectiveType) {
@@ -356,6 +369,7 @@ export async function moveAndLink(options = {}) {
         if (robocopyFailed(copyRes.exitCode)) {
             throw new AppError('ERR_ROBOCOPY_FAILED', {
                 exitCode: copyRes.exitCode == null ? 'timeout' : String(copyRes.exitCode),
+                hint: robocopyErrorHint(copyRes.output) && ` · Robocopy: ${robocopyErrorHint(copyRes.output)}`,
             });
         }
 
@@ -451,6 +465,7 @@ export async function revertLink(idOrPath, { onStep = null, onProgress = null } 
             });
             throw new AppError('ERR_REVERT_MOVE_FAILED', {
                 exitCode: copyRes.exitCode == null ? 'timeout' : String(copyRes.exitCode),
+                hint: robocopyErrorHint(copyRes.output) && ` · Robocopy: ${robocopyErrorHint(copyRes.output)}`,
             });
         }
 

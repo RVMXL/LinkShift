@@ -249,7 +249,12 @@ function stepFail() {
     if (lastStepChip) {
         lastStepChip.style.color = 'var(--err)';
         lastStepChip.style.borderColor = 'var(--err)';
+        // Гасим спиннер: красная «крутящаяся» плашка после ошибки выглядела
+        // как бесконечно идущая работа (пользователь видел «откат...» навечно).
+        const spin = lastStepChip.querySelector('.spin');
+        if (spin) { spin.classList.remove('spin'); spin.classList.add('dot'); }
     }
+    $('#tr-progress-label').textContent = i18n.t('ui.progress.aborted');
 }
 
 function copyProgress(p) {

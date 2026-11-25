@@ -38,7 +38,12 @@ export function toB64Utf16(text) {
 
 /** Экранирование пути для командной строки Windows (в путях кавычек не бывает). */
 export function quoteArg(value) {
-    return '"' + String(value).replace(/^"+|"+$/g, '').replace(/\\+$/, '') + '"';
+    let p = String(value).replace(/^"+|"+$/g, '').replace(/\\+$/, '');
+    // Съедание хвостового бэкслеша ломало корень диска: "D:\" превращалось
+    // в "D:" — для robocopy это ТЕКУЩАЯ папка диска, а не корень; типичный
+    // источник exit code 16 («serious error, nothing copied»).
+    if (/^[a-z]:$/i.test(p) || /^\\\\\?\\[a-z]:$/i.test(p)) p += '\\';
+    return '"' + p + '"';
 }
 
 /** Префикс \\?\ для снятия лимита MAX_PATH (260) в robocopy/.NET. */
