@@ -5,7 +5,7 @@
   "author": "RVMXL",
   "description": "GUI для безопасного переноса тяжелых папок и кэшей на другой диск через mklink (robocopy + junction/symlink)",
   "copyright": "© 2026 RVMXL",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "defaultMode": "window",
   "port": 0,
   "documentRoot": "/resources/",

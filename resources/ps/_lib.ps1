@@ -55,7 +55,10 @@ trap {
 
 function Get-LongPath([string]$p) {
     # \\?\ prefix removes the 260-char MAX_PATH limit for .NET APIs.
-    $p = $p.TrimEnd('\')
+    # Raw .NET APIs treat the prefix literally: forward slashes (drag-drop,
+    # copy-paste) are NOT normalized there - "Could not find a part of the
+    # path '\\?\C:/...'". Convert everything to canonical backslashes first.
+    $p = $p.Replace('/', '\').TrimEnd('\')
     if ($p.StartsWith('\\?\')) { return $p }
     if ($p.StartsWith('\\')) { return ('\\?\UNC\' + $p.Substring(2)) }
     return ('\\?\' + $p)

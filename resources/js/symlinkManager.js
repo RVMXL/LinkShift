@@ -33,9 +33,13 @@ const COPY_POLL_MS = 1500;
 
 /* ------------------------------------------------------------- утилиты */
 
-/** Нормализация пути: кавычки, хвостовые слеши, префикс \\?\. */
+/** Нормализация пути: кавычки, косые черты, хвостовые слеши, префикс \\?\. */
 export function normalizePath(p) {
     let s = String(p ?? '').trim().replace(/^["']+|["']+$/g, '');
+    // Drag-drop Neutralino и копипаст дают косые черты (C:/Users/...). Для
+    // PowerShell это терпимо, но сырые .NET API с префиксом \\?\ трактуют
+    // путь буквально: "\\?\C:/..." -> «Не удалось найти часть пути».
+    s = s.replace(/\//g, '\\');
     s = s.replace(/\\+$/, '');
     s = s.replace(/^\\\\\?\\/, ''); // снимаем \\?\ (4 символа: \ \ ? \)
     if (/^[a-zA-Z]:$/.test(s)) s += '\\';
@@ -270,16 +274,23 @@ async function verifyLink(src, dest, effectiveType) {
 
 async function rollbackAfterFailure({ src, bakPath, dest, linkCreated }) {
     const problems = [];
+    let linkRemoved = true;
 
     if (linkCreated) {
         try {
             const rl = await runScript('remove-link', [src]);
-            if (!rl.ok) problems.push(`remove-link: ${rl.message || rl.error}`);
+            if (!rl.ok) {
+                problems.push(`remove-link: ${rl.message || rl.error}`);
+                linkRemoved = false;
+            }
         } catch (e) {
             problems.push(`remove-link: ${(e && e.message) || e}`);
+            linkRemoved = false;
         }
     }
-    if (bakPath) {
+    if (bakPath && linkRemoved) {
+        // .bak поверх неубранной ссылки переименовывать бессмысленно:
+        // гарантированное «файл уже существует» добавляло только шум.
         try {
             const ren = await runScript('rename-dir', [bakPath, leafOf(src)]);
             if (!ren.ok) problems.push(`restore rename: ${ren.message || ren.error}`);
@@ -421,7 +432,17 @@ export async function moveAndLink(options = {}) {
         if (!check.ok) throw new AppError('ERR_LINK_VERIFY_FAILED', { details: check.details ?? '' });
 
         emit('cleanup', { bakPath });
-        const del = await runScript('delete-dir', [bakPath]);
+        // Сбой уборки (ok:false или крах скрипта) НЕ откатывает успешный
+        // перенос: копия и ссылка уже проверены. Раньше крах delete-dir
+        // проваливался в общий catch и запускал бессмысленный откат
+        // (remove-link поверх рабочей ссылки -> «уже существует»).
+        // Бэкап остаётся, путь попадает в историю и предупреждение.
+        let del = { ok: false, error: 'cleanup-crashed' };
+        try {
+            del = await runScript('delete-dir', [bakPath]);
+        } catch (e) {
+            del = { ok: false, error: 'cleanup-crashed', message: String((e && e.message) || e) };
+        }
         let bakKept = null;
         if (!del.ok) {
             bakKept = bakPath;
@@ -445,7 +466,10 @@ export async function moveAndLink(options = {}) {
         emit('rollback', { code: e instanceof AppError ? e.code : 'ERR_INTERNAL' });
         const rb = await rollbackAfterFailure({ src, bakPath, dest, linkCreated });
         if (!rb.ok) {
-            throw new AppError('ERR_ROLLBACK_FAILED', { details: rb.details }, e);
+            // Код первопричины в деталях: ERR_ROLLBACK_FAILED раньше прятал,
+            // ЧТО именно сломало транзакцию (виден был только откат).
+            const cause = isAppError(e) ? `[${e.code}] ` : '';
+            throw new AppError('ERR_ROLLBACK_FAILED', { details: cause + rb.details }, e);
         }
         throw e;
     }

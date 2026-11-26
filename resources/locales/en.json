@@ -133,7 +133,7 @@
   "ERR_ROBOCOPY_FAILED": "robocopy failed (exit code {exitCode}). Data was restored from .bak{hint}",
   "ERR_LINK_FAILED": "Failed to create the link: {details}",
   "ERR_LINK_VERIFY_FAILED": "The created link failed verification: {details}",
-  "ERR_ROLLBACK_FAILED": "ROLLBACK FAILED, data remains in .bak. Nothing was deleted: {details}",
+  "ERR_ROLLBACK_FAILED": "Rollback did not finish: {details}. No data was lost — it is either on the target drive or in the .bak next to the original folder; check both before deleting anything manually.",
   "ERR_NOT_IN_HISTORY": "Entry not found in history: {path}",
   "ERR_LINK_TARGET_MISSING": "The link target is not accessible: {path}",
   "ERR_REVERT_STATE_UNEXPECTED": "Unexpected folder state; the revert was stopped for safety: {details}",
@@ -143,7 +143,7 @@
   "WARN_SOURCE_CONTAINS_LINKS": "{count} link(s) found inside the source folder; they were not copied (robocopy /XJ) and will remain in .bak",
   "WARN_COPY_ACL_SKIPPED": "No administrator rights: NTFS permissions were not fully copied (/COPY:DAT was used)",
   "WARN_SYMLINK_FALLBACK": "No administrator rights: a junction (mklink /J) was created instead of a symlink",
-  "WARN_BAK_KEPT": "Could not delete .bak (some files are locked). Data is duplicated at: {path}",
+  "WARN_BAK_KEPT": "The .bak backup was not deleted (some files are locked) and remains at: {path}. The data has been moved — it is safe to delete this folder manually.",
   "WARN_TARGET_NOT_EMPTY": "The target folder is not empty and was left untouched: {path}",
 
   "reason.process_running": "The application is running: {process}.exe — close it before moving",
