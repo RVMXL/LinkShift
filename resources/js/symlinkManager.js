@@ -20,11 +20,11 @@
  * (если создана), вернуть .bak на место, удалить частичную копию.
  */
 
-import { runPSInline, spawnStreaming, toB64, quoteArg, withLongPrefix } from './core/exec.js';
+import { runPSInline, toB64, quoteArg } from './core/exec.js';
 import { runScript } from './core/ps.js';
 import { measureDirectorySize, getDriveSpace, getLinkInfo } from './core/fsinfo.js';
 import * as history from './core/history.js';
-import { AppError, t } from './core/i18n.js';
+import { AppError, isAppError, t } from './core/i18n.js';
 
 const MB = 1024 * 1024;
 const FREE_SPACE_MARGIN = 256 * MB;   // запас под метаданные NTFS и рост во время копирования
@@ -153,15 +153,14 @@ function robocopyFlags(admin) {
  * robocopy с потоковым прогрессом: опрашиваем приемник каждые 1.5 сек.
  * (robocopy не умеет проценты, а построчный разбор вывода ломается на
  * русскоязычных Windows из-за локализованных сообщений.)
+ *
+ * Сам robocopy запускается ВНУТРИ PowerShell-обёртки copy-dir.ps1 с
+ * Base64-путями. Прямой спавн страдал от ANSI командной строки Neutralino:
+ * UTF-8 путь с кириллицей превращался в mojibake, robocopy не находил
+ * источник и выходил с кодом 16. Возврат/отмена: таймаут обёртки
+ * превращается в exitCode null (неудача копирования).
  */
 async function runCopyWithProgress(fromDir, toDir, totalBytes, totalFiles, onProgress, flags) {
-    const command = [
-        'robocopy',
-        quoteArg(withLongPrefix(fromDir)),
-        quoteArg(withLongPrefix(toDir)),
-        flags,
-    ].join(' ');
-
     let stopped = false;
     const poller = (async () => {
         while (!stopped) {
@@ -181,15 +180,26 @@ async function runCopyWithProgress(fromDir, toDir, totalBytes, totalFiles, onPro
         }
     })();
 
-    let res;
     try {
-        res = await spawnStreaming(command, { timeoutMs: COPY_TIMEOUT_MS });
+        const res = await runScript('copy-dir', [fromDir, toDir, flags], { timeoutMs: COPY_TIMEOUT_MS });
+        if (!res || res.ok !== true) {
+            throw new AppError('ERR_ROBOCOPY_FAILED', {
+                exitCode: 'error',
+                hint: ` · Robocopy: wrapper failed (${(res && (res.error || res.message)) || 'no result'})`,
+            });
+        }
+        // /UNILOG (UTF-16) — единственный кодировочно-надёжный вывод robocopy.
+        return { exitCode: res.exitCode, timedOut: false, output: String(res.log ?? '').slice(-4000) };
+    } catch (e) {
+        if (isAppError(e) && e.code === 'ERR_TIMEOUT') {
+            // Обёртка убита по таймауту: robocopy не успел завершиться.
+            return { exitCode: null, timedOut: true, output: '' };
+        }
+        throw e;
     } finally {
         stopped = true;
         await poller;
     }
-
-    return { exitCode: res.exitCode, timedOut: res.timedOut, output: res.stdOut.slice(-4000) };
 }
 
 /** Коды 0-7 у robocopy — успех (1 = «файлы скопированы», это норма). */
@@ -197,17 +207,44 @@ function robocopyFailed(exitCode) {
     return exitCode == null || exitCode >= 8;
 }
 
+/** Расшифровка типовых кодов Win32 для тоста — всегда на английском. */
+const WIN32_ERROR_EN = {
+    2: 'The system cannot find the file specified',
+    3: 'The system cannot find the path specified',
+    5: 'Access is denied',
+    32: 'The file is in use by another process (sharing violation)',
+    87: 'The parameter is incorrect',
+    123: 'The filename, directory name, or volume label syntax is incorrect',
+    161: 'The specified path is invalid',
+    183: 'Cannot create a file when that file already exists',
+    267: 'The directory name is invalid',
+};
+
 /**
- * Последняя осмысленная строка вывода robocopy — причина ошибки для тоста
- * (robocopy пишет её даже с /NP /NFL /NDL: итоговая таблица и строки ERROR).
+ * Диагностика robocopy для тоста — всегда на английском. Консольный вывод
+ * robocopy идёт в OEM-кодировке и в UTF-8-канале превращается в ромбы;
+ * строка «ERROR N (0x…)» языконезависима (цифры и скобки — ASCII, выживают
+ * в любой кодировке), расшифровку даёт таблица Win32. Хвост строки (какой
+ * файл/папка) берём из /UNILOG — он UTF-16 и читается нормально.
  */
-function robocopyErrorHint(output) {
-    if (!output) return '';
-    const lines = String(output).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (!lines.length) return '';
-    const errLines = lines.filter((l) => /error|ошибк|отказано|доступ|denied|invalid|неверн/i.test(l));
-    const pick = (errLines.length ? errLines : lines).slice(-1)[0] ?? '';
-    return pick.replace(/["«»]/g, '').slice(0, 160);
+function robocopyErrorHint(output, exitCode) {
+    const text = String(output ?? '');
+    let last = null;
+    for (const m of text.matchAll(/\bERROR\s+(\d+)\s+\(0x([0-9A-Fa-f]+)\)/g)) last = m;
+    if (last) {
+        const n = parseInt(last[1], 10);
+        const hex = last[2].toUpperCase();
+        const desc = WIN32_ERROR_EN[n] ?? `Windows error 0x${hex} (${n})`;
+        const line = (text.slice(last.index).split(/\r?\n/)[0] ?? '').trim();
+        const ctx = line.replace(/^.*?\(0x[0-9A-Fa-f]+\)\s*/, '').trim();
+        let hint = `robocopy reported ERROR ${n} (0x${hex}): ${desc}`;
+        if (ctx) hint += ` — ${ctx}`.slice(0, 200);
+        return hint.slice(0, 240);
+    }
+    const code = Number(exitCode);
+    if (code >= 16) return 'robocopy failed before copying anything — usually the source path was not found or access was denied';
+    if (code >= 8) return 'some files failed to copy';
+    return '';
 }
 
 /* ------------------------------------------------------------ верификация */
@@ -367,9 +404,10 @@ export async function moveAndLink(options = {}) {
             bakPath, dest, size.bytes, size.files, onProgress, robocopyFlags(admin),
         );
         if (robocopyFailed(copyRes.exitCode)) {
+            const rcHint = robocopyErrorHint(copyRes.output, copyRes.exitCode);
             throw new AppError('ERR_ROBOCOPY_FAILED', {
                 exitCode: copyRes.exitCode == null ? 'timeout' : String(copyRes.exitCode),
-                hint: robocopyErrorHint(copyRes.output) && ` · Robocopy: ${robocopyErrorHint(copyRes.output)}`,
+                hint: rcHint ? ` · Robocopy: ${rcHint}` : '',
             });
         }
 
@@ -458,6 +496,7 @@ export async function revertLink(idOrPath, { onStep = null, onProgress = null } 
             robocopyFlags(admin) + ' /MOVE',
         );
         if (robocopyFailed(copyRes.exitCode)) {
+            const rcHint = robocopyErrorHint(copyRes.output, copyRes.exitCode);
             await history.update(entry.id, {
                 status: 'error',
                 notes: [...(entry.notes ?? []),
@@ -465,7 +504,7 @@ export async function revertLink(idOrPath, { onStep = null, onProgress = null } 
             });
             throw new AppError('ERR_REVERT_MOVE_FAILED', {
                 exitCode: copyRes.exitCode == null ? 'timeout' : String(copyRes.exitCode),
-                hint: robocopyErrorHint(copyRes.output) && ` · Robocopy: ${robocopyErrorHint(copyRes.output)}`,
+                hint: rcHint ? ` · Robocopy: ${rcHint}` : '',
             });
         }
 
